@@ -1,103 +1,274 @@
-import Image from "next/image";
+// app/page.js
+
+"use client";
+
+import { useState } from "react";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [address, setAddress] = useState("");
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
+  const [pageSize, setPageSize] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [listings, setListings] = useState([]);
+  const [csvBlob, setCsvBlob] = useState(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError(null);
+    setListings([]);
+    setCsvBlob(null);
+
+    try {
+      const response = await fetch("/api/fetchListings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ address, latitude, longitude, pageSize }),
+      });
+
+      if (response.ok) {
+        const originalBlob = await response.blob();
+
+        // Convert blob to text to parse the CSV data
+        const text = await originalBlob.text();
+        const rows = text.split("\n").map((row) => row.split(","));
+
+        // Parse CSV rows into an array of objects
+        const headers = rows[0];
+        let data = rows.slice(1).map((row) => {
+          return headers.reduce((obj, header, index) => {
+            obj[header] = row[index] || "N/A";
+            return obj;
+          }, {});
+        });
+
+        // Add Hotel Link to each listing
+        data = data.map((listing) => {
+          const pageName = listing["Page Name"] || "N/A";
+          const hotelLink =
+            pageName !== "N/A"
+              ? `https://www.booking.com/hotel/in/${pageName}`
+              : "N/A";
+          return {
+            ...listing,
+            "Hotel Link": hotelLink,
+          };
+        });
+
+        // Create a new CSV with the Hotel Link column
+        const newHeaders = [...headers, "Hotel Link"];
+        const newRows = [
+          newHeaders.join(","), // Header row
+          ...data.map((listing) =>
+            newHeaders
+              .map((header) => {
+                // Escape commas in the values to prevent CSV issues
+                const value = listing[header] || "N/A";
+                return value.includes(",") ? `"${value}"` : value;
+              })
+              .join(",")
+          ),
+        ];
+        const newCsvText = newRows.join("\n");
+        const newBlob = new Blob([newCsvText], { type: "text/csv" });
+
+        setCsvBlob(newBlob); // Store the updated CSV blob for download
+        setListings(data); // Store the updated listings for display
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "An error occurred");
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (csvBlob) {
+      const url = window.URL.createObjectURL(csvBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "listings.csv";
+      a.click();
+      window.URL.revokeObjectURL(url);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="max-w-4xl mx-auto">
+        {/* Form Section */}
+        <div className="bg-white shadow-lg rounded-lg p-8 mb-6">
+          <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">
+            Fetch Listings
+          </h1>
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
+              {error}
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Address
+              </label>
+              <input
+                type="text"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+                placeholder="e.g., Bangalore"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Latitude
+              </label>
+              <input
+                type="number"
+                step="any"
+                value={latitude}
+                onChange={(e) => setLatitude(e.target.value)}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+                placeholder="e.g., 12.9716"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Longitude
+              </label>
+              <input
+                type="number"
+                step="any"
+                value={longitude}
+                onChange={(e) => setLongitude(e.target.value)}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+                placeholder="e.g., 77.5946"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Page Size
+              </label>
+              <input
+                type="number"
+                value={pageSize}
+                onChange={(e) => setPageSize(e.target.value)}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+                placeholder="e.g., 50"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className={`w-full py-2 rounded-md text-white transition duration-200 ${
+                isLoading
+                  ? "bg-blue-400 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              }`}
+            >
+              {isLoading ? (
+                <span className="flex items-center justify-center">
+                  <svg
+                    className="animate-spin h-5 w-5 mr-2 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    ></path>
+                  </svg>
+                  Fetching...
+                </span>
+              ) : (
+                "Fetch Listings"
+              )}
+            </button>
+          </form>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        {/* Listings Section */}
+        {listings.length > 0 && (
+          <div className="mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">
+                Listings ({listings.length})
+              </h2>
+              <button
+                onClick={handleDownload}
+                disabled={!csvBlob}
+                className={`py-2 px-4 rounded-md text-white transition duration-200 ${
+                  !csvBlob
+                    ? "bg-gray-400 cursor-not-allowed"
+                    : "bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                }`}
+              >
+                Download CSV
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {listings.map((listing, index) => (
+                <div
+                  key={index}
+                  className="bg-white shadow-md rounded-lg p-6 hover:shadow-lg transition duration-200"
+                >
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                    {listing["Listing Title"]}
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-1">
+                    <span className="font-medium">Listing ID:</span>{" "}
+                    {listing["Listing ID"]}
+                  </p>
+                  <p className="text-sm text-gray-600 mb-1">
+                    <span className="font-medium">Page Name:</span>{" "}
+                    {listing["Page Name"]}
+                  </p>
+                  <p className="text-sm text-gray-600 mb-1">
+                    <span className="font-medium">Amount Per Stay:</span>{" "}
+                    {listing["Amount Per Stay"]}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    <span className="font-medium">Hotel Link:</span>{" "}
+                    {listing["Hotel Link"] !== "N/A" ? (
+                      <a
+                        href={listing["Hotel Link"]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        View Hotel
+                      </a>
+                    ) : (
+                      "N/A"
+                    )}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
