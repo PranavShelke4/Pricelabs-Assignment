@@ -1,5 +1,3 @@
-// app/page.js
-
 "use client";
 
 import { useState } from "react";
@@ -31,23 +29,10 @@ export default function Home() {
       });
 
       if (response.ok) {
-        const originalBlob = await response.blob();
-
-        // Convert blob to text to parse the CSV data
-        const text = await originalBlob.text();
-        const rows = text.split("\n").map((row) => row.split(","));
-
-        // Parse CSV rows into an array of objects
-        const headers = rows[0];
-        let data = rows.slice(1).map((row) => {
-          return headers.reduce((obj, header, index) => {
-            obj[header] = row[index] || "N/A";
-            return obj;
-          }, {});
-        });
+        const { listings: fetchedListings } = await response.json();
 
         // Add Hotel Link to each listing
-        data = data.map((listing) => {
+        const updatedListings = fetchedListings.map((listing) => {
           const pageName = listing["Page Name"] || "N/A";
           const hotelLink =
             pageName !== "N/A"
@@ -59,25 +44,35 @@ export default function Home() {
           };
         });
 
-        // Create a new CSV with the Hotel Link column
-        const newHeaders = [...headers, "Hotel Link"];
-        const newRows = [
-          newHeaders.join(","), // Header row
-          ...data.map((listing) =>
-            newHeaders
+        // Create a CSV from the updated listings
+        const headers = [
+          "Listing ID",
+          "Listing Title",
+          "Page Name",
+          "Amount Per Stay",
+          "Hotel Link",
+        ];
+        const csvRows = [
+          headers.join(","), // Header row
+          ...updatedListings.map((listing) =>
+            headers
               .map((header) => {
+                // Convert value to string and handle undefined/null
+                const value = listing[header] ?? "N/A"; // Fallback to "N/A" if undefined or null
+                const stringValue = String(value); // Convert to string
                 // Escape commas in the values to prevent CSV issues
-                const value = listing[header] || "N/A";
-                return value.includes(",") ? `"${value}"` : value;
+                return stringValue.includes(",")
+                  ? `"${stringValue}"`
+                  : stringValue;
               })
               .join(",")
           ),
         ];
-        const newCsvText = newRows.join("\n");
-        const newBlob = new Blob([newCsvText], { type: "text/csv" });
+        const csvText = csvRows.join("\n");
+        const newBlob = new Blob([csvText], { type: "text/csv" });
 
-        setCsvBlob(newBlob); // Store the updated CSV blob for download
-        setListings(data); // Store the updated listings for display
+        setCsvBlob(newBlob); // Store the CSV blob for download
+        setListings(updatedListings); // Store the updated listings for display
       } else {
         const errorData = await response.json();
         throw new Error(errorData.message || "An error occurred");
