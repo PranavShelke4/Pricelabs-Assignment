@@ -18,6 +18,7 @@ export const fetchListings = async (variables) => {
     );
     console.log("API response received:", response.data);
     return response.data;
+    
   } catch (error) {
     console.error(
       "Error fetching listings:",
